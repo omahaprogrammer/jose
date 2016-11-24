@@ -72,7 +72,7 @@ import org.bouncycastle.jcajce.spec.UserKeyingMaterialSpec;
  * @author Jonathan Paz <jonathan@pazdev.com>
  */
 @JsonDeserialize(builder = JWE.JsonBuilder.class)
-public class JWE {
+public final class JWE {
     @JsonProperty("protected")
     private final byte[] protectedHeader;
     @JsonProperty("unprotected")

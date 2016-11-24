@@ -27,7 +27,7 @@ import java.util.List;
  * @author Jonathan Paz <jonathan@pazdev.com>
  */
 @JsonDeserialize(builder = JWKSet.Builder.class)
-public class JWKSet {
+public final class JWKSet {
     @JsonPOJOBuilder
     public static final class Builder {
         LinkedList<JWK> jwks = new LinkedList<>();
