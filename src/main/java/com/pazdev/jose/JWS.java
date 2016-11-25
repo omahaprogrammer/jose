@@ -521,4 +521,11 @@ public final class JWS {
         }
     }
     
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static JsonBuilder jsonBuilder() {
+        return new JsonBuilder();
+    }
 }

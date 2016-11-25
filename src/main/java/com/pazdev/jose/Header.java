@@ -82,6 +82,12 @@ public class Header implements Serializable {
         private byte[] pbe2SaltInput;
         private Integer pbes2Count;
         private String b64EncodedPayload;
+        @JsonProperty("iss")
+        private String issuer;
+        @JsonProperty("sub")
+        private String subject;
+        @JsonProperty("aud")
+        private String audience;
         private final HashMap<String,Object> claims = new HashMap<>();
 
         public Builder withHeader(Header h) {
@@ -288,6 +294,24 @@ public class Header implements Serializable {
             return this;
         }
 
+        @JsonProperty("iss")
+        public Builder withIssuer(String iss) {
+            this.issuer = iss;
+            return this;
+        }
+
+        @JsonProperty("sub")
+        public Builder withSubject(String sub) {
+            this.subject = sub;
+            return this;
+        }
+
+        @JsonProperty("aud")
+        public Builder withAudience(String aud) {
+            this.audience = aud;
+            return this;
+        }
+
         @JsonAnySetter
         public Builder withClaim(String name, Object o) {
             if (name != null && o != null) {
@@ -327,6 +351,9 @@ public class Header implements Serializable {
                     pbe2SaltInput,
                     pbes2Count,
                     b64EncodedPayload,
+                    issuer,
+                    subject,
+                    audience,
                     (claims.isEmpty()) ? null : claims);
         }
     }
@@ -374,9 +401,15 @@ public class Header implements Serializable {
     private final Integer pbes2Count;
     @JsonProperty("b64")
     private final String b64EncodedPayload;
+    @JsonProperty("iss")
+    private final String issuer;
+    @JsonProperty("sub")
+    private final String subject;
+    @JsonProperty("aud")
+    private final String audience;
     private final Map<String,Object> claims;
 
-    private Header(Algorithm algorithm, URI jwkSetUrl, JWK jsonWebKey, String keyId, URI x509Url, List<byte[]> x509CertificateChain, byte[] x509CertificateSHA1Thumbprint, byte[] x509CertificateSHA256Thumbprint, String type, String contentType, List<String> critical, Algorithm encryptionAlgorithm, Algorithm compressionAlgorithm, JWK ephemeralPublicKey, byte[] agreementPartyUInfo, byte[] agreementPartyVInfo, byte[] initializationVector, byte[] authenticationTag, byte[] pbe2SaltInput, Integer pbes2Count, String b64EncodedPayload, Map<String, Object> claims) {
+    public Header(Algorithm algorithm, URI jwkSetUrl, JWK jsonWebKey, String keyId, URI x509Url, List<byte[]> x509CertificateChain, byte[] x509CertificateSHA1Thumbprint, byte[] x509CertificateSHA256Thumbprint, String type, String contentType, List<String> critical, Algorithm encryptionAlgorithm, Algorithm compressionAlgorithm, JWK ephemeralPublicKey, byte[] agreementPartyUInfo, byte[] agreementPartyVInfo, byte[] initializationVector, byte[] authenticationTag, byte[] pbe2SaltInput, Integer pbes2Count, String b64EncodedPayload, String issuer, String subject, String audience, Map<String, Object> claims) {
         this.algorithm = algorithm;
         this.jwkSetUrl = jwkSetUrl;
         this.jsonWebKey = jsonWebKey;
@@ -398,6 +431,9 @@ public class Header implements Serializable {
         this.pbe2SaltInput = pbe2SaltInput;
         this.pbes2Count = pbes2Count;
         this.b64EncodedPayload = b64EncodedPayload;
+        this.issuer = issuer;
+        this.subject = subject;
+        this.audience = audience;
         this.claims = claims;
     }
 
@@ -423,6 +459,9 @@ public class Header implements Serializable {
                 other.pbe2SaltInput,
                 other.pbes2Count,
                 other.b64EncodedPayload,
+                other.issuer,
+                other.subject,
+                other.audience,
                 other.claims);
     }
 
@@ -510,6 +549,18 @@ public class Header implements Serializable {
         return b64EncodedPayload;
     }
 
+    public String getIssuer() {
+        return issuer;
+    }
+
+    public String getSubject() {
+        return subject;
+    }
+
+    public String getAudience() {
+        return audience;
+    }
+
     public Object getClaim(String key) {
         return claims.get(key);
     }
@@ -560,6 +611,9 @@ public class Header implements Serializable {
         String pbe2SaltInput = b64urlEncoder.encodeToString(mainHeader.pbe2SaltInput);
         Integer pbes2Count = mainHeader.pbes2Count;
         String b64EncodedPayload = mainHeader.b64EncodedPayload;
+        String issuer = mainHeader.issuer;
+        String subject = mainHeader.subject;
+        String audience = mainHeader.audience;
         Map<String,Object> claims = new HashMap<>(mainHeader.claims);
 
         for (Header header : headers) {
@@ -724,6 +778,27 @@ public class Header implements Serializable {
                     throw new IllegalArgumentException();
                 }
             }
+            if (header.issuer != null) {
+                if (issuer == null || issuer.equals(header.issuer)) {
+                    issuer = header.issuer;
+                } else {
+                    throw new IllegalArgumentException();
+                }
+            }
+            if (header.subject != null) {
+                if (subject == null || subject.equals(header.subject)) {
+                    subject = header.subject;
+                } else {
+                    throw new IllegalArgumentException();
+                }
+            }
+            if (header.audience != null) {
+                if (audience == null || audience.equals(header.audience)) {
+                    audience = header.audience;
+                } else {
+                    throw new IllegalArgumentException();
+                }
+            }
             header.claims.entrySet().forEach(e -> {
                 String key = e.getKey();
                 Object o = e.getValue();
@@ -758,6 +833,9 @@ public class Header implements Serializable {
                 b64urlDecoder.decode(pbe2SaltInput),
                 pbes2Count,
                 b64EncodedPayload,
+                issuer,
+                subject,
+                audience,
                 ImmutableMap.copyOf(claims));
     }
 

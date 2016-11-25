@@ -146,6 +146,16 @@ public final class JWE {
         private final ArrayList<char[]> passwords = new ArrayList<>();
         private final ArrayList<Key> keys = new ArrayList<>();
 
+        public Builder withProtectedHeader(Header header) {
+            this.protectedHeader = header;
+            return this;
+        }
+
+        public Builder withSharedHeader(Header header) {
+            this.sharedHeader = header;
+            return this;
+        }
+
         public Builder withAAD(byte[] aad) {
             this.aad = aad.clone();
             return this;
@@ -957,7 +967,7 @@ public final class JWE {
         // steps 1 - 3 occur naturally
 
         // step 4
-        Header ph, sh, rh = null;
+        Header ph, sh, rh;
         if (recipients != null && !recipients.isEmpty()) {
             rh = recipients.get(recipientIndex).header;
         } else {
@@ -1273,6 +1283,14 @@ public final class JWE {
                 throw new RuntimeException(e);
             }
         }
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static JsonBuilder jsonBuilder() {
+        return new JsonBuilder();
     }
     
 }
