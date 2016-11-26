@@ -16,6 +16,7 @@
 package com.pazdev.jose;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
 import com.google.common.collect.ImmutableList;
@@ -27,6 +28,7 @@ import java.util.List;
  * @author Jonathan Paz <jonathan@pazdev.com>
  */
 @JsonDeserialize(builder = JWKSet.Builder.class)
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public final class JWKSet {
     @JsonPOJOBuilder
     public static final class Builder {

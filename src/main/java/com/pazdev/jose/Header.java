@@ -17,17 +17,15 @@ package com.pazdev.jose;
 
 import com.fasterxml.jackson.annotation.JsonAnyGetter;
 import com.fasterxml.jackson.annotation.JsonAnySetter;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.Base64Variants;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.pazdev.jose.json.CertDeserializer;
-import com.pazdev.jose.json.CertSerializer;
 import java.io.IOException;
 import java.io.Serializable;
 import java.net.URI;
@@ -51,6 +49,7 @@ import java.util.stream.Collectors;
  * @author Jonathan Paz <jonathan@pazdev.com>
  */
 @JsonDeserialize(builder = Header.Builder.class)
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class Header implements Serializable {
 
     /**
@@ -66,7 +65,7 @@ public class Header implements Serializable {
         private JWK jsonWebKey;
         private String keyId;
         private URI x509Url;
-        private List<byte[]> x509CertificateChain;
+        private List<String> x509CertificateChain;
         private byte[] x509CertificateSHA1Thumbprint;
         private byte[] x509CertificateSHA256Thumbprint;
         private String type;
@@ -96,20 +95,20 @@ public class Header implements Serializable {
             jsonWebKey = h.jsonWebKey;
             keyId = h.keyId;
             x509Url = h.x509Url;
-            x509CertificateChain = ImmutableList.copyOf(h.x509CertificateChain.stream().map(byte[]::clone).collect(Collectors.toList()));
-            x509CertificateSHA1Thumbprint = h.x509CertificateSHA1Thumbprint.clone();
-            x509CertificateSHA256Thumbprint = h.x509CertificateSHA256Thumbprint.clone();
+            x509CertificateChain = h.x509CertificateChain;
+            x509CertificateSHA1Thumbprint = h.x509CertificateSHA1Thumbprint;
+            x509CertificateSHA256Thumbprint = h.x509CertificateSHA256Thumbprint;
             type = h.type;
             contentType = h.contentType;
-            critical = ImmutableList.copyOf(h.critical);
+            critical = h.critical;
             encryptionAlgorithm = h.encryptionAlgorithm;
             compressionAlgorithm = h.compressionAlgorithm;
             ephemeralPublicKey = h.ephemeralPublicKey;
             agreementPartyUInfo = h.agreementPartyUInfo;
             agreementPartyVInfo = h.agreementPartyVInfo;
-            initializationVector = h.initializationVector.clone();
-            authenticationTag = h.authenticationTag.clone();
-            pbe2SaltInput = h.pbe2SaltInput.clone();
+            initializationVector = h.initializationVector;
+            authenticationTag = h.authenticationTag;
+            pbe2SaltInput = h.pbe2SaltInput;
             pbes2Count = h.pbes2Count;
             b64EncodedPayload = h.b64EncodedPayload;
             claims.putAll(h.claims);
@@ -166,16 +165,11 @@ public class Header implements Serializable {
         }
 
         @JsonProperty("x5c")
-        @JsonDeserialize(contentAs = CertDeserializer.class)
-        public Builder withX509CertificateChain(List<byte[]> chain) {
+        public Builder withX509CertificateChain(List<String> chain) {
             if (chain == null || chain.isEmpty()) {
                 this.x509CertificateChain = null;
             } else {
-                this.x509CertificateChain = ImmutableList.copyOf(
-                        chain.stream()
-                                .filter(e -> e != null && e.length > 0)
-                                .map((e) -> e.clone())
-                                .collect(Collectors.toList()));
+                this.x509CertificateChain = ImmutableList.copyOf(chain);
             }
             return this;
         }
@@ -215,7 +209,11 @@ public class Header implements Serializable {
 
         @JsonProperty("crit")
         public Builder withCritical(List<String> crit) {
-            this.critical = ImmutableList.copyOf(crit.stream().filter(e -> e != null).collect(Collectors.toList()));
+            if (crit == null) {
+                this.critical = null;
+            } else {
+                this.critical = ImmutableList.copyOf(crit.stream().filter(e -> e != null).collect(Collectors.toList()));
+            }
             return this;
         }
 
@@ -239,13 +237,22 @@ public class Header implements Serializable {
 
         @JsonProperty(value = "apu")
         public Builder withAgreementPartyUInfo(byte[] apu) {
-            this.agreementPartyUInfo = apu.clone();
+            if (apu == null || apu.length == 0) {
+                this.agreementPartyUInfo = null;
+            } else {
+                this.agreementPartyUInfo = apu.clone();
+            }
+
             return this;
         }
 
         @JsonProperty(value = "apv")
         public Builder withAgreementPartyVInfo(byte[] apv) {
-            this.agreementPartyVInfo = apv.clone();
+            if (apv == null || apv.length == 0) {
+                this.agreementPartyVInfo = null;
+            } else {
+                this.agreementPartyVInfo = apv.clone();
+            }
             return this;
         }
 
@@ -354,7 +361,7 @@ public class Header implements Serializable {
                     issuer,
                     subject,
                     audience,
-                    (claims.isEmpty()) ? null : claims);
+                    claims);
         }
     }
 
@@ -369,8 +376,7 @@ public class Header implements Serializable {
     @JsonProperty("x5u")
     private final URI x509Url;
     @JsonProperty("x5c")
-    @JsonSerialize(contentAs = CertSerializer.class)
-    private final List<byte[]> x509CertificateChain;
+    private final List<String> x509CertificateChain;
     @JsonProperty("x5t")
     private final byte[] x509CertificateSHA1Thumbprint;
     @JsonProperty("x5t#S256")
@@ -409,7 +415,7 @@ public class Header implements Serializable {
     private final String audience;
     private final Map<String,Object> claims;
 
-    public Header(Algorithm algorithm, URI jwkSetUrl, JWK jsonWebKey, String keyId, URI x509Url, List<byte[]> x509CertificateChain, byte[] x509CertificateSHA1Thumbprint, byte[] x509CertificateSHA256Thumbprint, String type, String contentType, List<String> critical, Algorithm encryptionAlgorithm, Algorithm compressionAlgorithm, JWK ephemeralPublicKey, byte[] agreementPartyUInfo, byte[] agreementPartyVInfo, byte[] initializationVector, byte[] authenticationTag, byte[] pbe2SaltInput, Integer pbes2Count, String b64EncodedPayload, String issuer, String subject, String audience, Map<String, Object> claims) {
+    public Header(Algorithm algorithm, URI jwkSetUrl, JWK jsonWebKey, String keyId, URI x509Url, List<String> x509CertificateChain, byte[] x509CertificateSHA1Thumbprint, byte[] x509CertificateSHA256Thumbprint, String type, String contentType, List<String> critical, Algorithm encryptionAlgorithm, Algorithm compressionAlgorithm, JWK ephemeralPublicKey, byte[] agreementPartyUInfo, byte[] agreementPartyVInfo, byte[] initializationVector, byte[] authenticationTag, byte[] pbe2SaltInput, Integer pbes2Count, String b64EncodedPayload, String issuer, String subject, String audience, Map<String, Object> claims) {
         this.algorithm = algorithm;
         this.jwkSetUrl = jwkSetUrl;
         this.jsonWebKey = jsonWebKey;
@@ -485,8 +491,8 @@ public class Header implements Serializable {
         return x509Url;
     }
 
-    public List<byte[]> getX509CertificateChain() {
-        return Collections.unmodifiableList(x509CertificateChain.stream().map(byte[]::clone).collect(Collectors.toList()));
+    public List<String> getX509CertificateChain() {
+        return x509CertificateChain;
     }
 
     public byte[] getX509CertificateSHA1Thumbprint() {
@@ -592,23 +598,20 @@ public class Header implements Serializable {
         JWK jsonWebKey = mainHeader.jsonWebKey;
         String keyId = mainHeader.keyId;
         URI x509Url = mainHeader.x509Url;
-        List<String> x509CertificateChain = ImmutableList.copyOf(
-                mainHeader.x509CertificateChain.stream()
-                        .map(e -> Base64.getEncoder().encodeToString(e))
-                        .collect(Collectors.toList()));
-        String x509CertificateSHA1Thumbprint = b64urlEncoder.encodeToString(mainHeader.x509CertificateSHA1Thumbprint);
-        String x509CertificateSHA256Thumbprint = b64urlEncoder.encodeToString(mainHeader.x509CertificateSHA256Thumbprint);
+        List<String> x509CertificateChain = mainHeader.x509CertificateChain != null ? ImmutableList.copyOf(mainHeader.x509CertificateChain) : null;
+        String x509CertificateSHA1Thumbprint = mainHeader.x509CertificateSHA1Thumbprint != null ? b64urlEncoder.encodeToString(mainHeader.x509CertificateSHA1Thumbprint) : null;
+        String x509CertificateSHA256Thumbprint = mainHeader.x509CertificateSHA256Thumbprint != null ? b64urlEncoder.encodeToString(mainHeader.x509CertificateSHA256Thumbprint) : null;
         String type = mainHeader.type;
         String contentType = mainHeader.contentType;
         List<String> critical = mainHeader.critical;
         Algorithm encryptionAlgorithm = mainHeader.encryptionAlgorithm;
         Algorithm compressionAlgorithm = mainHeader.compressionAlgorithm;
         JWK ephemeralPublicKey = mainHeader.ephemeralPublicKey;
-        String agreementPartyUInfo = b64urlEncoder.encodeToString(mainHeader.agreementPartyUInfo);
-        String agreementPartyVInfo = b64urlEncoder.encodeToString(mainHeader.agreementPartyVInfo);
-        String initializationVector = b64urlEncoder.encodeToString(mainHeader.initializationVector);
-        String authenticationTag = b64urlEncoder.encodeToString(mainHeader.authenticationTag);
-        String pbe2SaltInput = b64urlEncoder.encodeToString(mainHeader.pbe2SaltInput);
+        String agreementPartyUInfo = mainHeader.agreementPartyUInfo != null ? b64urlEncoder.encodeToString(mainHeader.agreementPartyUInfo) : null;
+        String agreementPartyVInfo = mainHeader.agreementPartyVInfo != null ? b64urlEncoder.encodeToString(mainHeader.agreementPartyVInfo) : null;
+        String initializationVector = mainHeader.initializationVector != null ? b64urlEncoder.encodeToString(mainHeader.initializationVector) : null;
+        String authenticationTag = mainHeader.authenticationTag != null ? b64urlEncoder.encodeToString(mainHeader.authenticationTag) : null;
+        String pbe2SaltInput = mainHeader.pbe2SaltInput != null ? b64urlEncoder.encodeToString(mainHeader.pbe2SaltInput) : null;
         Integer pbes2Count = mainHeader.pbes2Count;
         String b64EncodedPayload = mainHeader.b64EncodedPayload;
         String issuer = mainHeader.issuer;
@@ -656,10 +659,7 @@ public class Header implements Serializable {
                 }
             }
             if (header.x509CertificateChain != null) {
-                List<String> chain = ImmutableList.copyOf(
-                        header.x509CertificateChain.stream()
-                                .map(e -> Base64.getEncoder().encodeToString(e))
-                                .collect(Collectors.toList()));
+                List<String> chain = ImmutableList.copyOf(header.x509CertificateChain);
                 if (x509CertificateChain == null || x509CertificateChain.equals(chain)) {
                     x509CertificateChain = chain;
                 } else {
@@ -814,23 +814,20 @@ public class Header implements Serializable {
                 jsonWebKey,
                 keyId,
                 x509Url,
-                ImmutableList.copyOf(
-                        x509CertificateChain.stream()
-                                .map(e -> Base64.getMimeDecoder().decode(e))
-                                .collect(Collectors.toList())),
-                b64urlDecoder.decode(x509CertificateSHA1Thumbprint),
-                b64urlDecoder.decode(x509CertificateSHA256Thumbprint),
+                x509CertificateChain != null ? ImmutableList.copyOf(x509CertificateChain) : null,
+                x509CertificateSHA1Thumbprint != null ? b64urlDecoder.decode(x509CertificateSHA1Thumbprint) : null,
+                x509CertificateSHA256Thumbprint != null ? b64urlDecoder.decode(x509CertificateSHA256Thumbprint) : null,
                 type,
                 contentType,
                 critical,
                 encryptionAlgorithm,
                 compressionAlgorithm,
                 ephemeralPublicKey,
-                b64urlDecoder.decode(agreementPartyUInfo),
-                b64urlDecoder.decode(agreementPartyVInfo),
-                b64urlDecoder.decode(initializationVector),
-                b64urlDecoder.decode(authenticationTag),
-                b64urlDecoder.decode(pbe2SaltInput),
+                agreementPartyUInfo != null ? b64urlDecoder.decode(agreementPartyUInfo) : null,
+                agreementPartyVInfo != null ? b64urlDecoder.decode(agreementPartyVInfo) : null,
+                initializationVector != null ? b64urlDecoder.decode(initializationVector) : null,
+                authenticationTag != null ? b64urlDecoder.decode(authenticationTag) : null,
+                pbe2SaltInput != null ? b64urlDecoder.decode(pbe2SaltInput) : null,
                 pbes2Count,
                 b64EncodedPayload,
                 issuer,

@@ -15,16 +15,19 @@
  */
 package com.pazdev.jose;
 
-import com.pazdev.jose.json.CertSerializer;
 import com.fasterxml.jackson.annotation.JsonAnyGetter;
 import com.fasterxml.jackson.annotation.JsonAnySetter;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.Base64Variants;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.pazdev.jose.json.CertDeserializer;
+import java.io.IOException;
 import java.io.Serializable;
 import java.math.BigInteger;
 import java.net.URI;
@@ -54,6 +57,7 @@ import java.security.spec.RSAPrivateCrtKeySpec;
 import java.security.spec.RSAPrivateKeySpec;
 import java.security.spec.RSAPublicKeySpec;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
@@ -74,6 +78,7 @@ import org.bouncycastle.jce.spec.ECNamedCurveSpec;
  * @author Jonathan Paz <jonathan@pazdev.com>
  */
 @JsonDeserialize(builder = JWK.Builder.class)
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public final class JWK implements Serializable {
     @JsonPOJOBuilder
     public static final class Builder {
@@ -83,7 +88,7 @@ public final class JWK implements Serializable {
         private List<String> keyOperations = null;
         private String algorithm = null;
         private URI x509Url = null;
-        private List<byte[]> x509CertificateChain = null;
+        private List<String> x509CertificateChain = null;
         private byte[] x509CertificateSHA1Thumbprint = null;
         private byte[] x509CertificateSHA256Thumbprint = null;
         private String curve = null;
@@ -168,14 +173,11 @@ public final class JWK implements Serializable {
          * @return this builder.
          */
         @JsonProperty("x5c")
-        @JsonDeserialize(contentAs = CertDeserializer.class)
-        public Builder withX509CertificateChain(List<byte[]> chain) {
+        public Builder withX509CertificateChain(List<String> chain) {
             if (chain == null || chain.isEmpty()) {
                 this.x509CertificateChain = null;
             } else {
-                this.x509CertificateChain = chain.stream()
-                        .filter(e -> e != null && e.length > 0)
-                        .map(byte[]::clone).collect(Collectors.toList());
+                this.x509CertificateChain = ImmutableList.copyOf(chain);
             }
             return this;
         }
@@ -341,6 +343,7 @@ public final class JWK implements Serializable {
             return this;
         }
 
+        @JsonIgnore
         public Builder withClaims(Map<String, Object> m) {
             if (m != null) {
                 claims.putAll(m);
@@ -348,6 +351,7 @@ public final class JWK implements Serializable {
             return this;
         }
 
+        @JsonIgnore
         public Builder withPublicKey(ECPublicKey pub) {
             this.keyType = "EC";
             this.curve = CURVE_NAMES.get(new ECParameterSpecEqual(pub.getParams())).getName();
@@ -356,12 +360,14 @@ public final class JWK implements Serializable {
             return this;
         }
 
+        @JsonIgnore
         public Builder withKeyPair(ECPublicKey pub, ECPrivateKey priv) {
             withPublicKey(pub);
             this.privateKey = priv.getS().toByteArray();
             return this;
         }
 
+        @JsonIgnore
         public Builder withPublicKey(RSAPublicKey pub) {
             this.keyType = "RSA";
             this.modulus = pub.getModulus().toByteArray();
@@ -369,12 +375,14 @@ public final class JWK implements Serializable {
             return this;
         }
 
+        @JsonIgnore
         public Builder withKeyPair(RSAPublicKey pub, RSAPrivateKey priv) {
             withPublicKey(pub);
             this.privateKey = priv.getPrivateExponent().toByteArray();
             return this;
         }
 
+        @JsonIgnore
         public Builder withKeyPair(RSAPublicKey pub, RSAPrivateCrtKey priv) {
             withPublicKey(pub);
             this.privateKey = priv.getPrivateExponent().toByteArray();
@@ -386,6 +394,7 @@ public final class JWK implements Serializable {
             return this;
         }
 
+        @JsonIgnore
         public Builder withKeyPair(RSAPublicKey pub, RSAMultiPrimePrivateCrtKey priv) {
             withPublicKey(pub);
             this.privateKey = priv.getPrivateExponent().toByteArray();
@@ -407,6 +416,7 @@ public final class JWK implements Serializable {
             return this;
         }
 
+        @JsonIgnore
         public Builder withSecretKey(SecretKey key) {
             this.keyType = "oct";
             byte[] encoded = key.getEncoded();
@@ -414,6 +424,7 @@ public final class JWK implements Serializable {
             return this;
         }
 
+        @JsonIgnore
         public Builder withSecretKey(SecretKey key1, SecretKey key2) {
             this.keyType = "oct";
             byte[] encoded1 = key1.getEncoded();
@@ -425,6 +436,7 @@ public final class JWK implements Serializable {
             return this;
         }
 
+        @JsonIgnore
         public Builder withSecretKey(SecretKey... keys) {
             List<byte[]> encodedKeys = Arrays.asList(keys).stream().map(SecretKey::getEncoded).collect(Collectors.toList());
             int total = encodedKeys.stream().collect(Collectors.summingInt((a) -> a.length));
@@ -438,6 +450,7 @@ public final class JWK implements Serializable {
             return this;
         }
 
+        @JsonIgnore
         public Builder withCertificate(X509Certificate cert) {
             PublicKey pub = cert.getPublicKey();
             if (pub instanceof ECPublicKey) {
@@ -449,7 +462,7 @@ public final class JWK implements Serializable {
             }
             try {
                 byte[] encoded = cert.getEncoded();
-                this.x509CertificateChain = ImmutableList.of(encoded);
+                this.x509CertificateChain = ImmutableList.of(Base64.getEncoder().encodeToString(encoded));
                 MessageDigest sha1 = MessageDigest.getInstance("SHA-1", "BC");
                 MessageDigest sha256 = MessageDigest.getInstance("SHA-256", "BC");
                 this.x509CertificateSHA1Thumbprint = sha1.digest(encoded);
@@ -462,13 +475,14 @@ public final class JWK implements Serializable {
             return this;
         }
 
+        @JsonIgnore
         public Builder withCertificate(X509Certificate... certs) {
             X509Certificate last = null;
             try {
-                ImmutableList.Builder<byte[]> ders = ImmutableList.builder();
+                ImmutableList.Builder<String> ders = ImmutableList.builder();
                 for (X509Certificate cert : certs) {
                     last = cert;
-                    ders.add(cert.getEncoded());
+                    ders.add(Base64.getEncoder().encodeToString(cert.getEncoded()));
                 }
                 if (last == null) {
                     throw new IllegalArgumentException("Empty list");
@@ -654,8 +668,7 @@ public final class JWK implements Serializable {
     @JsonProperty("x5u")
     private final URI x509Url;
     @JsonProperty("x5c")
-    @JsonSerialize(contentUsing = CertSerializer.class)
-    private final List<byte[]> x509CertificateChain;
+    private final List<String> x509CertificateChain;
     @JsonProperty("x5t")
     private final byte[] x509CertificateSHA1Thumbprint;
     @JsonProperty("x5t#S256")
@@ -688,7 +701,7 @@ public final class JWK implements Serializable {
     private final byte[] keyValue;
     private final Map<String, Object> claims;
 
-    private JWK(String keyId, String keyType, String publicKeyUse, List<String> keyOperations, String algorithm, URI x509Url, List<byte[]> x509CertificateChain, byte[] x509CertificateSHA1Thumbprint, byte[] x509CertificateSHA256Thumbprint, String curve, byte[] xCoordinate, byte[] yCoordinate, byte[] privateKey, byte[] modulus, byte[] exponent, byte[] firstPrimeFactor, byte[] secondPrimeFactor, byte[] firstFactorCrtExponent, byte[] secondFactorCrtExponent, byte[] firstCrtCoefficient, List<OtherPrimeInfo> otherPrimesInfo, byte[] keyValue, Map<String, Object> claims) {
+    private JWK(String keyId, String keyType, String publicKeyUse, List<String> keyOperations, String algorithm, URI x509Url, List<String> x509CertificateChain, byte[] x509CertificateSHA1Thumbprint, byte[] x509CertificateSHA256Thumbprint, String curve, byte[] xCoordinate, byte[] yCoordinate, byte[] privateKey, byte[] modulus, byte[] exponent, byte[] firstPrimeFactor, byte[] secondPrimeFactor, byte[] firstFactorCrtExponent, byte[] secondFactorCrtExponent, byte[] firstCrtCoefficient, List<OtherPrimeInfo> otherPrimesInfo, byte[] keyValue, Map<String, Object> claims) {
         this.keyId = keyId;
         this.keyType = keyType;
         this.publicKeyUse = publicKeyUse;
@@ -768,8 +781,8 @@ public final class JWK implements Serializable {
         return x509Url;
     }
 
-    public List<byte[]> getX509CertificateChain() {
-        return Collections.unmodifiableList(x509CertificateChain.stream().map(byte[]::clone).collect(Collectors.toList()));
+    public List<String> getX509CertificateChain() {
+        return x509CertificateChain;
     }
 
     public byte[] getX509CertificateSHA1Thumbprint() {
@@ -837,10 +850,12 @@ public final class JWK implements Serializable {
         return claims;
     }
 
+    @JsonIgnore
     public Object getClaim(String name) {
         return claims.get(name);
     }
 
+    @JsonIgnore
     public <T> T getClaim(String name, Class<T> cls) {
         return cls.cast(getClaim(name));
     }
@@ -858,6 +873,7 @@ public final class JWK implements Serializable {
      * </ul>
      * @return a map containing all the obtainable keys.
      */
+    @JsonIgnore
     public Map<String, Key> getKeys() {
         HashMap<String, Key> retval = new HashMap<>();
         try {
@@ -956,7 +972,7 @@ public final class JWK implements Serializable {
                     break;
                 }
                 case "oct":
-                    retval.put("secret", new SecretKeySpec(keyValue, algorithm));
+                    retval.put("secret", new SecretKeySpec(keyValue, algorithm != null ? algorithm : "AES"));
                     break;
             }
         } catch (NoSuchAlgorithmException | NoSuchProviderException | InvalidKeySpecException e) {
@@ -1074,6 +1090,26 @@ public final class JWK implements Serializable {
         }
         return Objects.equals(this.claims, other.claims);
     }
+
+    public String toJson() {
+        ObjectMapper om = new ObjectMapper();
+        om.setBase64Variant(Base64Variants.MODIFIED_FOR_URL);
+        try {
+            return om.writeValueAsString(this);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static JWK parse(String json) {
+        ObjectMapper om = new ObjectMapper();
+        om.setBase64Variant(Base64Variants.MODIFIED_FOR_URL);
+        try {
+            return om.readValue(json, JWK.class);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
     
 }
 
@@ -1103,5 +1139,4 @@ class ECParameterSpecEqual extends ECParameterSpec {
     public int hashCode() {
         return Objects.hash(getCurve(), getGenerator(), getOrder(), getCofactor());
     }
-
 }

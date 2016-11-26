@@ -16,6 +16,8 @@
 package com.pazdev.jose;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.Base64Variants;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -26,6 +28,7 @@ import com.google.common.collect.ImmutableList;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -37,6 +40,7 @@ import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.SecureRandom;
+import java.security.Security;
 import java.security.interfaces.ECPrivateKey;
 import java.security.interfaces.ECPublicKey;
 import java.security.spec.EllipticCurve;
@@ -66,13 +70,19 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 import org.bouncycastle.jcajce.spec.UserKeyingMaterialSpec;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 
 /**
  *
  * @author Jonathan Paz <jonathan@pazdev.com>
  */
 @JsonDeserialize(builder = JWE.JsonBuilder.class)
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public final class JWE {
+    static {
+        Security.addProvider(new BouncyCastleProvider());
+    }
+
     @JsonProperty("protected")
     private final byte[] protectedHeader;
     @JsonProperty("unprotected")
@@ -171,8 +181,12 @@ public final class JWE {
             }
         }
 
-        public Builder withPayload(String cleartext) {
-            this.cleartext = cleartext.getBytes(StandardCharsets.UTF_8);
+        public Builder withPayload(String payload) {
+            return withPayload(payload, StandardCharsets.UTF_8);
+        }
+
+        public Builder withPayload(String cleartext, Charset charset) {
+            this.cleartext = cleartext.getBytes(charset);
             return this;
         }
 
@@ -246,8 +260,8 @@ public final class JWE {
             Algorithm penc = protectedHeader != null ? protectedHeader.getEncryptionAlgorithm() : null;
             Algorithm senc = sharedHeader != null ? sharedHeader.getEncryptionAlgorithm() : null;
 
-            Algorithm palg = null;
-            Algorithm salg = null;
+            Algorithm palg = protectedHeader != null ? protectedHeader.getAlgorithm() : null;
+            Algorithm salg = sharedHeader != null ? sharedHeader.getAlgorithm() : null;
 
             for (int i = 0, ct = recipients.size(); i < ct; i++) {
                 Key kek = null;
@@ -274,17 +288,18 @@ public final class JWE {
                     if (cek == null) {
                         cek = generateKey(enc, rand);
                     }
+                    kek = key;
                 }
                 
                 // step 3
                 try {
                     if (STEP_3A.contains(alg.getType())) {
+                        if (enc == null) {
+                            throw new IllegalStateException("Missing encryption");
+                        }
                         String algorithmID;
                         int bits, bytes;
                         if (Algorithm.ECDH_ES.equals(alg)) {
-                            if (enc == null) {
-                                throw new IllegalStateException("Missing encryption");
-                            }
                             algorithmID = enc.getName();
                             bits = enc.getBitSize();
                             bytes = enc.getByteSize();
@@ -302,7 +317,7 @@ public final class JWE {
                         gen.initialize(pub.getParams(), rand);
                         KeyPair pair = gen.generateKeyPair();
                         ECPrivateKey priv = (ECPrivateKey) pair.getPrivate();
-                        KeyAgreement agr = KeyAgreement.getInstance("ECDHwithSHA256CKDF", "BC");
+                        KeyAgreement agr = KeyAgreement.getInstance("ECCDHwithSHA256CKDF", "BC");
                         byte[] apu;
                         byte[] apv;
                         if (recipient != null) {
@@ -327,24 +342,31 @@ public final class JWE {
                         if (apv == null) {
                             apv = new byte[0];
                         }
+                        Algorithm keyalg = alg;
+                        if (alg == Algorithm.ECDH_ES) {
+                            keyalg = enc;
+                        }
                         int otherInfoSize = 0;
-                        otherInfoSize += 4 + alg.getName().length();
+                        otherInfoSize += 4 + keyalg.getName().length();
                         otherInfoSize += 4 + apu.length;
                         otherInfoSize += 4 + apv.length;
                         otherInfoSize += 4; // SuppPubInfo
                         byte[] otherInfo = new byte[otherInfoSize];
                         ByteBuffer buf = ByteBuffer.wrap(otherInfo);
-                        buf.putInt(alg.getName().length());
-                        buf.put(alg.getName().getBytes(StandardCharsets.US_ASCII));
+                        buf.putInt(keyalg.getName().length());
+                        buf.put(keyalg.getName().getBytes(StandardCharsets.US_ASCII));
                         buf.putInt(apu.length);
                         buf.put(apu);
                         buf.putInt(apv.length);
                         buf.put(apv);
-                        buf.putInt(alg.getByteSize());
+                        buf.putInt(keyalg.getByteSize());
                         UserKeyingMaterialSpec spec = new UserKeyingMaterialSpec(otherInfo);
                         agr.init(pair.getPrivate(), spec, rand);
                         agr.doPhase(pub, true);
-                        SecretKey sharedKey = agr.generateSecret(String.format("AES[%d]", alg.getBitSize()));
+                        // multiplying bit size by 8 to resolve a bug in Bouncy Castle
+                        // refer to org.bouncycastle.jcajce.provider.asymmetric.util.BaseAgreementSpi.java:179
+                        // and org.bouncycastle.jcajce.provider.asymmetric.util.BaseAgreementSpi.java:263
+                        SecretKey sharedKey = agr.generateSecret(String.format("AES[%d]", enc.getBitSize() * 8));
                         if (Algorithm.ECDH_ES.equals(alg)) {
                             if (cek != null && !cek.equals(sharedKey)) {
                                 throw new IllegalStateException("More than one recipient specifies direct encryption");
@@ -421,6 +443,7 @@ public final class JWE {
                         throw new RuntimeException(e);
                     }
                 }
+
                 try {
                     if (Algorithm.RSA1_5.equals(alg)) {
                         Cipher c = Cipher.getInstance("RSA/NONE/PKCS1Padding", "BC");
@@ -588,7 +611,7 @@ public final class JWE {
 
             // step 14
             byte[] jweAAD;
-            if (aad != null || aad.length > 0) {
+            if (aad != null && aad.length > 0) {
                 jweAAD = String.format("%s.%s",
                             protectedHeaderBase64,
                             Base64.getUrlEncoder().withoutPadding().encodeToString(aad))
@@ -646,8 +669,8 @@ public final class JWE {
                     c.updateAAD(jweAAD);
                     byte[] output = c.doFinal(cleartext);
                     Arrays.fill(cleartext, (byte)0);
-                    ciphertext = Arrays.copyOf(output, output.length - 128);
-                    tag = Arrays.copyOfRange(output, output.length - 128, output.length);
+                    ciphertext = Arrays.copyOf(output, output.length - 16);
+                    tag = Arrays.copyOfRange(output, output.length - 16, output.length);
                 } else {
                     throw new IllegalStateException("Unsupported encryption algorithm");
                 }
@@ -710,7 +733,7 @@ public final class JWE {
                         gen2.init(128, rand);
                         SecretKey hmac = gen1.generateKey();
                         SecretKey secret = gen2.generateKey();
-                        byte[] combined = new byte[256];
+                        byte[] combined = new byte[32];
                         ByteBuffer buf = ByteBuffer.wrap(combined);
                         buf.put(hmac.getEncoded());
                         buf.put(secret.getEncoded());
@@ -724,7 +747,7 @@ public final class JWE {
                         gen2.init(192, rand);
                         SecretKey hmac = gen1.generateKey();
                         SecretKey secret = gen2.generateKey();
-                        byte[] combined = new byte[384];
+                        byte[] combined = new byte[48];
                         ByteBuffer buf = ByteBuffer.wrap(combined);
                         buf.put(hmac.getEncoded());
                         buf.put(secret.getEncoded());
@@ -738,7 +761,7 @@ public final class JWE {
                         gen2.init(256, rand);
                         SecretKey hmac = gen1.generateKey();
                         SecretKey secret = gen2.generateKey();
-                        byte[] combined = new byte[512];
+                        byte[] combined = new byte[64];
                         ByteBuffer buf = ByteBuffer.wrap(combined);
                         buf.put(hmac.getEncoded());
                         buf.put(secret.getEncoded());
@@ -868,9 +891,9 @@ public final class JWE {
         return JoseUtils.clone(protectedHeader);
     }
 
+    @JsonIgnore
     public Header getProtectedHeaderAsObject() {
-        byte[] raw = Base64.getUrlDecoder().decode(protectedHeader);
-        String h= new String(raw, StandardCharsets.UTF_8);
+        String h = new String(protectedHeader, StandardCharsets.UTF_8);
         ObjectMapper mapper = new ObjectMapper();
         mapper.setBase64Variant(Base64Variants.MODIFIED_FOR_URL);
         try {
@@ -912,20 +935,6 @@ public final class JWE {
         return JoseUtils.clone(encryptedKey);
     }
 
-    public String getCompactSerialization() {
-        if (recipients.size() > 1) {
-            throw new IllegalStateException("This object has multiple recipients");
-        } else if (aad != null) {
-            throw new IllegalStateException("AAD is not supported for compact serialization");
-        }
-        return String.format("%s.%s.%s.%s.%s",
-                Base64.getUrlEncoder().withoutPadding().encodeToString(protectedHeader),
-                (encryptedKey != null) ? Base64.getUrlEncoder().withoutPadding().encodeToString(encryptedKey) : "",
-                Base64.getUrlEncoder().withoutPadding().encodeToString(iv),
-                Base64.getUrlEncoder().withoutPadding().encodeToString(ciphertext),
-                Base64.getUrlEncoder().withoutPadding().encodeToString(tag));
-    }
-
     public <T> T decryptJson(Key decryptKey, Class<T> objType) {
         byte[] clear = decrypt(decryptKey);
         ObjectMapper om = new ObjectMapper();
@@ -948,7 +957,15 @@ public final class JWE {
         }
     }
 
-    public String decrypt(Key decryptKey, Charset charset) {
+    public String decryptString(Key decryptKey) {
+        return new String(decrypt(decryptKey), StandardCharsets.UTF_8);
+    }
+
+    public String decryptString(int recipientIdx, Key decryptKey) {
+        return new String(decrypt(recipientIdx, decryptKey), StandardCharsets.UTF_8);
+    }
+
+    public String decryptString(Key decryptKey, Charset charset) {
         return new String(decrypt(decryptKey), charset);
     }
 
@@ -997,7 +1014,7 @@ public final class JWE {
             JWK eph = joseHeader.getEphemeralPublicKey();
             Key publicKey = eph.getKeys().get("public");
             try {
-                KeyAgreement ka = KeyAgreement.getInstance("ECDHwithSHA256CKDF", "BC");
+                KeyAgreement ka = KeyAgreement.getInstance("ECCDHwithSHA256CKDF", "BC");
                 byte[] apu = joseHeader.getAgreementPartyUInfo();
                 byte[] apv = joseHeader.getAgreementPartyVInfo();
                 if (apu == null) {
@@ -1027,7 +1044,10 @@ public final class JWE {
                 UserKeyingMaterialSpec spec = new UserKeyingMaterialSpec(otherInfo);
                 ka.init(decryptKey, spec);
                 ka.doPhase(publicKey, true);
-                SecretKey sharedKey = ka.generateSecret(String.format("AES[%d]", keyalg.getBitSize()));
+                // multiplying bit size by 8 to resolve a bug in Bouncy Castle
+                // refer to org.bouncycastle.jcajce.provider.asymmetric.util.BaseAgreementSpi.java:179
+                // and org.bouncycastle.jcajce.provider.asymmetric.util.BaseAgreementSpi.java:263
+                SecretKey sharedKey = ka.generateSecret(String.format("AES[%d]", keyalg.getBitSize() * 8));
                 if (Algorithm.ECDH_ES.equals(alg)) {
                     kek = null;
                     cek = sharedKey;
@@ -1063,20 +1083,27 @@ public final class JWE {
             throw new UnsupportedOperationException();
         }
 
+        byte[] encryptedCEK;
+        if (recipients != null) {
+            encryptedCEK = recipients.get(recipientIndex).encryptedKey;
+        } else {
+            encryptedCEK = encryptedKey;
+        }
+
         // step 9
         try {
             if (Algorithm.RSA1_5.equals(alg)) {
                 Cipher c = Cipher.getInstance("RSA/NONE/PKCS1Padding", "BC");
                 c.init(Cipher.UNWRAP_MODE, kek);
-                cek = c.unwrap(encryptedKey, "AES", Cipher.SECRET_KEY);
+                cek = c.unwrap(encryptedCEK, "AES", Cipher.SECRET_KEY);
             } else if (Algorithm.RSA_OAEP.equals(alg)) {
                 Cipher c = Cipher.getInstance("RSA/NONE/OAEPWithSHA1AndMGF1Padding", "BC");
                 c.init(Cipher.UNWRAP_MODE, kek);
-                cek = c.unwrap(encryptedKey, "AES", Cipher.SECRET_KEY);
+                cek = c.unwrap(encryptedCEK, "AES", Cipher.SECRET_KEY);
             } else if (Algorithm.RSA_OAEP_256.equals(alg)) {
                 Cipher c = Cipher.getInstance("RSA/NONE/OAEPWithSHA256AndMGF1Padding", "BC");
                 c.init(Cipher.UNWRAP_MODE, kek);
-                cek = c.unwrap(encryptedKey, "AES", Cipher.SECRET_KEY);
+                cek = c.unwrap(encryptedCEK, "AES", Cipher.SECRET_KEY);
             } else if (Algorithm.A128KW.equals(alg)
                     || Algorithm.A128KW.equals(alg)
                     || Algorithm.A256KW.equals(alg)
@@ -1088,13 +1115,13 @@ public final class JWE {
                     || Algorithm.PBES2_HS512_A256KW.equals(alg)) {
                 Cipher c = Cipher.getInstance("AESWrap", "BC");
                 c.init(Cipher.UNWRAP_MODE, kek);
-                cek = c.unwrap(encryptedKey, "AES", Cipher.SECRET_KEY);
+                cek = c.unwrap(encryptedCEK, "AES", Cipher.SECRET_KEY);
             } else if (Algorithm.A128GCMKW.equals(alg)
                     || Algorithm.A192GCMKW.equals(alg)
                     || Algorithm.A256GCMKW.equals(alg)) {
-                byte[] cipheredKey = new byte[encryptedKey.length + 16];
+                byte[] cipheredKey = new byte[encryptedCEK.length + 16];
                 ByteBuffer buf = ByteBuffer.wrap(cipheredKey);
-                buf.put(encryptedKey);
+                buf.put(encryptedCEK);
                 buf.put(joseHeader.getAuthenticationTag());
                 Cipher c = Cipher.getInstance("AES/GCM/NoPadding", "BC");
                 byte[] keyIV = joseHeader.getInitializationVector();
@@ -1111,7 +1138,7 @@ public final class JWE {
         
         // step 10
         if (Algorithm.DIR.equals(alg) || Algorithm.ECDH_ES.equals(alg)
-                && encryptedKey != null && encryptedKey.length > 0) {
+                && encryptedCEK != null && encryptedCEK.length > 0) {
             throw new IllegalArgumentException("An encrypted key exists when direct algorithms are used");
         }
 
@@ -1137,16 +1164,16 @@ public final class JWE {
         byte[] output;
         // step 16
         try {
-            if (Algorithm.A128CBC_HS256.equals(alg)
-                    || Algorithm.A192CBC_HS384.equals(alg)
-                    || Algorithm.A256CBC_HS512.equals(alg)) {
+            if (Algorithm.A128CBC_HS256.equals(enc)
+                    || Algorithm.A192CBC_HS384.equals(enc)
+                    || Algorithm.A256CBC_HS512.equals(enc)) {
                 byte[] k = cek.getEncoded();
-                byte[] macKey = Arrays.copyOf(k, alg.getByteSize());
-                byte[] encKey = Arrays.copyOfRange(k, alg.getByteSize(), k.length);
+                byte[] macKey = Arrays.copyOf(k, enc.getByteSize());
+                byte[] encKey = Arrays.copyOfRange(k, enc.getByteSize(), k.length);
 
                 byte[] al = new byte[Long.BYTES];
                 ByteBuffer buf = ByteBuffer.wrap(al);
-                buf.putLong((long) aad.length);
+                buf.putLong((long) jweAAD.length);
                 
                 Mac mac;
                 int tLen;
@@ -1165,7 +1192,7 @@ public final class JWE {
                 } else {
                     throw new IllegalStateException("Unsupported HMAC");
                 }
-                mac.update(aad);
+                mac.update(jweAAD);
                 mac.update(iv);
                 mac.update(ciphertext);
                 mac.update(al);
@@ -1188,10 +1215,10 @@ public final class JWE {
                 Cipher c = Cipher.getInstance("AES/GCM/NoPadding", "BC");
                 c.init(Cipher.DECRYPT_MODE, cek, new GCMParameterSpec(128, iv));
                 c.updateAAD(jweAAD);
-                byte[] block = new byte[ciphertext.length + 128];
+                byte[] block = new byte[ciphertext.length + tag.length];
                 ByteBuffer buf = ByteBuffer.wrap(block);
                 buf.put(ciphertext);
-                buf.put(aad);
+                buf.put(tag);
                 try {
                     output = c.doFinal(block);
                 } catch (AEADBadTagException e) {

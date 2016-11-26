@@ -27,6 +27,9 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class Algorithm {
     static enum Type {HMAC, DS, NONE, KE, KW, DIRECT, KA_DIRECT, KA_KW, PWD_KW, CE, ZIP};
+
+    private static final Map<String, Algorithm> REGISTER = new ConcurrentHashMap<>();
+
     public static final Algorithm HS256 = Algorithm.getAlgorithm("HS256", Type.HMAC, true, 256, 32);
     public static final Algorithm HS384 = Algorithm.getAlgorithm("HS384", Type.HMAC, true, 384, 48);
     public static final Algorithm HS512 = Algorithm.getAlgorithm("HS512", Type.HMAC, true, 512, 64);
@@ -64,8 +67,6 @@ public class Algorithm {
     public static final Algorithm A192GCM = Algorithm.getAlgorithm("A192GCM", Type.CE, true, 192, 24);
     public static final Algorithm A256GCM = Algorithm.getAlgorithm("A256GCM", Type.CE, true, 256, 32);
     public static final Algorithm DEFLATE = Algorithm.getAlgorithm("DEF", Type.ZIP, true, 0, 0);
-
-    private static final Map<String, Algorithm> REGISTER = new ConcurrentHashMap<>();
 
     private final String name;
     private final Type type;

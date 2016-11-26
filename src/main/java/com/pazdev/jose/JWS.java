@@ -16,6 +16,8 @@
 package com.pazdev.jose;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.Base64Variants;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -30,6 +32,7 @@ import java.security.InvalidKeyException;
 import java.security.Key;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
+import java.security.Security;
 import java.security.SignatureException;
 import java.security.interfaces.ECPrivateKey;
 import java.security.interfaces.ECPublicKey;
@@ -42,13 +45,19 @@ import java.util.List;
 import java.util.Objects;
 import java.util.regex.Pattern;
 import javax.crypto.Mac;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 
 /**
  *
  * @author Jonathan Paz <jonathan@pazdev.com>
  */
 @JsonDeserialize(builder = JWS.JsonBuilder.class)
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public final class JWS {
+    static {
+        Security.addProvider(new BouncyCastleProvider());
+    }
+    
     @JsonProperty
     private final byte[] payload;
     @JsonProperty
@@ -79,6 +88,7 @@ public final class JWS {
             return JoseUtils.clone(protectedHeader);
         }
 
+        @JsonIgnore
         public Header getProtectedHeaderAsObject() {
             byte[] raw = Base64.getUrlDecoder().decode(protectedHeader);
             String h= new String(raw, StandardCharsets.UTF_8);
@@ -118,7 +128,11 @@ public final class JWS {
         }
 
         public Builder withPayload(String payload) {
-            this.payload = payload.getBytes(StandardCharsets.UTF_8);
+            return withPayload(payload, StandardCharsets.UTF_8);
+        }
+
+        public Builder withPayload(String payload, Charset charset) {
+            this.payload = payload.getBytes(charset);
             return this;
         }
 
